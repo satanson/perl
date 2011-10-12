@@ -8035,7 +8035,8 @@ S_reg(pTHX_ RExC_state_t *pRExC_state, I32 paren, I32 *flagp,U32 depth)
 			{
 			    o = o->op_sibling;
 			}
-			n = add_data(pRExC_state, 1, "l");
+			n = add_data(pRExC_state, 1,
+				   (RExC_flags & PMf_HAS_CV) ? "L" : "l");
 			RExC_rxi->data->data[n] = (void*)o->op_next;
 			pRExC_state->next_code_or_const = o->op_sibling;
 		    }
@@ -12851,6 +12852,7 @@ Perl_pregfree2(pTHX_ REGEXP *rx)
     SvREFCNT_dec(r->saved_copy);
 #endif
     Safefree(r->offs);
+    SvREFCNT_dec(r->qr_anoncv);
 }
 
 /*  reg_temp_copy()
@@ -12914,6 +12916,7 @@ Perl_reg_temp_copy (pTHX_ REGEXP *ret_x, REGEXP *rx)
     ret->saved_copy = NULL;
 #endif
     ret->mother_re = rx;
+    SvREFCNT_inc_void(ret->qr_anoncv);
     
     return ret_x;
 }
@@ -12995,6 +12998,7 @@ Perl_regfree_internal(pTHX_ REGEXP * const rx)
 		new_comppad = NULL;
 		break;
 	    case 'l':
+	    case 'L':
 	    case 'n':
 	        break;
             case 'T':	        
@@ -13123,6 +13127,7 @@ Perl_re_dup_guts(pTHX_ const REGEXP *sstr, REGEXP *dstr, CLONE_PARAMS *param)
     }
 
     RXp_PAREN_NAMES(ret) = hv_dup_inc(RXp_PAREN_NAMES(ret), param);
+    ret->qr_anoncv = MUTABLE_CV(sv_dup_inc((const SV *)ret->qr_anoncv, param));
 
     if (ret->pprivate)
 	RXi_SET(ret,CALLREGDUPE_PVT(dstr,param));
@@ -13236,6 +13241,7 @@ Perl_regdupe_internal(pTHX_ REGEXP * const rx, CLONE_PARAMS *param)
 		OP_REFCNT_UNLOCK;
 		/* Fall through */
 	    case 'l':
+	    case 'L':
 	    case 'n':
 		d->data[i] = ri->data->data[i];
 		break;
