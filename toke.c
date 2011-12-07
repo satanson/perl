@@ -9232,8 +9232,10 @@ S_scan_pat(pTHX_ char *start, I32 type)
      * anon CV. False positives like qr/[(?{]/ are harmless */
 
     if (type == OP_QR) {
-	char *p;
-	for (p = start; p < s; p++) {
+	STRLEN len;
+	char *e, *p = SvPV(PL_lex_stuff, len);
+	e = p + len;
+	for (; p < e; p++) {
 	    if (p[0] == '(' && p[1] == '?'
 		&& (p[2] == '{' || (p[2] == '?' && p[3] == '{')))
 	    {
@@ -9241,6 +9243,7 @@ S_scan_pat(pTHX_ char *start, I32 type)
 		break;
 	    }
 	}
+	pm->op_pmflags |= PMf_IS_QR;
     }
 
     while (*s && S_pmflag(aTHX_ valid_flags, &(pm->op_pmflags), &s, &charset)) {};
