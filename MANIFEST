@@ -1385,6 +1385,7 @@ cpan/IO-Socket-IP/t/12port-fallback.t
 cpan/IO-Socket-IP/t/13addrinfo.t
 cpan/IO-Socket-IP/t/14fileno.t
 cpan/IO-Socket-IP/t/15io-socket.t
+cpan/IO-Socket-IP/t/16v6only.t
 cpan/IO-Socket-IP/t/20nonblocking-connect.t
 cpan/IO-Socket-IP/t/21nonblocking-connect-internet.t
 cpan/IO-Zlib/t/basic.t		Tests for IO::Zlib

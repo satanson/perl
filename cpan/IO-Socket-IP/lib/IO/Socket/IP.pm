@@ -1,7 +1,7 @@
 #  You may distribute under the terms of either the GNU General Public License
 #  or the Artistic License (the same terms as Perl itself)
 #
-#  (C) Paul Evans, 2010-2011 -- leonerd@leonerd.org.uk
+#  (C) Paul Evans, 2010-2012 -- leonerd@leonerd.org.uk
 
 package IO::Socket::IP;
 
@@ -9,16 +9,17 @@ use strict;
 use warnings;
 use base qw( IO::Socket );
 
-our $VERSION = '0.08';
+our $VERSION = '0.08_003';
 
 use Carp;
 
-use Socket 1.95 qw(
+use Socket 1.97 qw(
    getaddrinfo getnameinfo
    AF_INET
    AI_PASSIVE
    IPPROTO_TCP IPPROTO_UDP
-   NI_DGRAM NI_NUMERICHOST NI_NUMERICSERV
+   IPPROTO_IPV6 IPV6_V6ONLY
+   NI_DGRAM NI_NUMERICHOST NI_NUMERICSERV NIx_NOHOST NIx_NOSERV
    SO_REUSEADDR SO_REUSEPORT SO_BROADCAST SO_ERROR
    SOCK_DGRAM SOCK_STREAM 
    SOL_SOCKET
@@ -26,7 +27,7 @@ use Socket 1.95 qw(
 my $AF_INET6 = eval { Socket::AF_INET6() }; # may not be defined
 my $AI_ADDRCONFIG = eval { Socket::AI_ADDRCONFIG() } || 0;
 use POSIX qw( dup2 );
-use Errno qw( EINPROGRESS );
+use Errno qw( EINVAL EINPROGRESS );
 
 use constant HAVE_MSWIN32 => ( $^O eq "MSWin32" );
 
@@ -134,6 +135,28 @@ sub import
    goto &IO::Socket::import;
 }
 
+# Convenient capability test function
+{
+   my $can_disable_v6only;
+   sub CAN_DISABLE_V6ONLY
+   {
+      return $can_disable_v6only if defined $can_disable_v6only;
+
+      socket my $testsock, Socket::PF_INET6, SOCK_STREAM, 0 or
+         die "Cannot socket(PF_INET6) - $!";
+
+      if( setsockopt $testsock, IPPROTO_IPV6, IPV6_V6ONLY, 0 ) {
+         return $can_disable_v6only = 1;
+      }
+      elsif( $! == EINVAL ) {
+         return $can_disable_v6only = 0;
+      }
+      else {
+         die "Cannot setsockopt() - $!";
+      }
+   }
+}
+
 =head1 CONSTRUCTORS
 
 =cut
@@ -227,6 +250,32 @@ If true, set the C<SO_REUSEPORT> sockopt (not all OSes implement this sockopt)
 
 If true, set the C<SO_BROADCAST> sockopt
 
+=item V6Only => BOOL
+
+If defined, set the C<IPV6_V6ONLY> sockopt when creating C<PF_INET6> sockets
+to the given value. If true, a listening-mode socket will only listen on the
+C<AF_INET6> addresses; if false it will also accept connections from
+C<AF_INET> addresses.
+
+If not defined, the socket option will not be changed, and default value set
+by the operating system will apply. For repeatable behaviour across platforms
+it is recommended this value always be defined for listening-mode sockets.
+
+Note that not all platforms support disabling this option. Some, at least
+OpenBSD and MirBSD, will fail with C<EINVAL> if you attempt to disable it.
+To determine whether it is possible to disable, you may use the class method
+
+ if( IO::Socket::IP->CAN_DISABLE_V6ONLY ) {
+    ...
+ }
+ else {
+    ...
+ }
+
+If your platform does not support disabling this option but you still want to
+listen for both C<AF_INET> and C<AF_INET6> connections you will have to create
+two listening sockets, one bound to each protocol.
+
 =item Timeout
 
 This C<IO::Socket::INET>-style argument is not currently supported. See the
@@ -234,9 +283,10 @@ C<IO::Socket::INET> INCOMPATIBILITES section below.
 
 =item MultiHomed
 
-This C<IO::Socket::INET>-style argument is not currently supported. See the
-C<IO::Socket::INET> INCOMPATIBILITES section below. However, the behaviour it
-enables is always performed by C<IO::Socket::IP>.
+This C<IO::Socket::INET>-style argument is ignored, except if it is defined
+but false. See the C<IO::Socket::INET> INCOMPATIBILITES section below. 
+
+However, the behaviour it enables is always performed by C<IO::Socket::IP>.
 
 =item Blocking => BOOL
 
@@ -316,23 +366,20 @@ sub _configure
    my @localinfos;
    my @peerinfos;
 
-   my @sockopts_enabled;
-
    $hints{flags} = $AI_ADDRCONFIG;
 
-   if( defined $arg->{Family} ) {
-      my $family = delete $arg->{Family};
+   # Check for definedness of args, but delete them anyway even if they're
+   # not defined. Then the only remaining keys will be unrecognised ones.
+
+   if( defined( my $family = delete $arg->{Family} ) ) {
       $hints{family} = $family;
    }
 
-   if( defined $arg->{Type} ) {
-      my $type = delete $arg->{Type};
+   if( defined( my $type = delete $arg->{Type} ) ) {
       $hints{socktype} = $type;
    }
 
-   if( defined $arg->{Proto} ) {
-      my $proto = delete $arg->{Proto};
-
+   if( defined( my $proto = delete $arg->{Proto} ) ) {
       unless( $proto =~ m/^\d+$/ ) {
          my $protonum = getprotobyname( $proto );
          defined $protonum or croak "Unrecognised protocol $proto";
@@ -357,12 +404,13 @@ sub _configure
    }
 
    if( my $info = delete $arg->{LocalAddrInfo} ) {
+      ref $info eq "ARRAY" or croak "Expected 'LocalAddrInfo' to be an ARRAY ref";
       @localinfos = @$info;
    }
    elsif( defined $arg->{LocalHost} or defined $arg->{LocalService} ) {
       # Either may be undef
-      my $host = delete $arg->{LocalHost};
-      my $service = delete $arg->{LocalService};
+      my $host = $arg->{LocalHost};
+      my $service = $arg->{LocalService};
 
       local $1; # Placate a taint-related bug; [perl #67962]
       defined $service and $service =~ s/\((\d+)\)$// and
@@ -378,8 +426,11 @@ sub _configure
 
       $err and ( $@ = "$err", return );
    }
+   delete $arg->{LocalHost};
+   delete $arg->{LocalService};
 
    if( my $info = delete $arg->{PeerAddrInfo} ) {
+      ref $info eq "ARRAY" or croak "Expected 'PeerAddrInfo' to be an ARRAY ref";
       @peerinfos = @$info;
    }
    elsif( defined $arg->{PeerHost} or defined $arg->{PeerService} ) {
@@ -400,7 +451,10 @@ sub _configure
 
       $err and ( $@ = "$err", return );
    }
+   delete $arg->{PeerHost};
+   delete $arg->{PeerService};
 
+   my @sockopts_enabled;
    push @sockopts_enabled, SO_REUSEADDR if delete $arg->{ReuseAddr};
    push @sockopts_enabled, SO_REUSEPORT if delete $arg->{ReusePort};
    push @sockopts_enabled, SO_BROADCAST if delete $arg->{Broadcast};
@@ -411,6 +465,16 @@ sub _configure
 
    my $blocking = delete $arg->{Blocking};
    defined $blocking or $blocking = 1;
+
+   my $v6only = delete $arg->{V6Only};
+
+   # IO::Socket::INET defines this key. IO::Socket::IP always implements the
+   # behaviour it requests, so we can ignore it, unless the caller is for some
+   # reason asking to disable it.
+   if( defined $arg->{MultiHomed} and !$arg->{MultiHomed} ) {
+      croak "Cannot disable the MultiHomed parameter";
+   }
+   delete $arg->{MultiHomed};
 
    keys %$arg and croak "Unexpected keys - " . join( ", ", sort keys %$arg );
 
@@ -447,6 +511,7 @@ sub _configure
    ${*$self}{io_socket_ip_idx} = -1;
 
    ${*$self}{io_socket_ip_sockopts} = \@sockopts_enabled;
+   ${*$self}{io_socket_ip_v6only} = $v6only;
    ${*$self}{io_socket_ip_listenqueue} = $listenqueue;
    ${*$self}{io_socket_ip_blocking} = $blocking;
 
@@ -475,6 +540,11 @@ sub setup
 
       foreach my $sockopt ( @{ ${*$self}{io_socket_ip_sockopts} } ) {
          $self->setsockopt( SOL_SOCKET, $sockopt, pack "i", 1 ) or ( $@ = "$!", return undef );
+      }
+
+      if( defined ${*$self}{io_socket_ip_v6only} and defined $AF_INET6 and $info->{family} == $AF_INET6 ) {
+         my $v6only = ${*$self}{io_socket_ip_v6only};
+         $self->setsockopt( IPPROTO_IPV6, IPV6_V6ONLY, pack "i", $v6only ) or ( $@ = "$!", return undef );
       }
 
       if( defined( my $addr = $info->{localaddr} ) ) {
@@ -539,14 +609,11 @@ L<IO::Socket> and L<IO::Handle>.
 sub _get_host_service
 {
    my $self = shift;
-   my ( $addr, $numeric ) = @_;
-
-   my $flags = 0;
+   my ( $addr, $flags, $xflags ) = @_;
 
    $flags |= NI_DGRAM if $self->socktype == SOCK_DGRAM;
-   $flags |= NI_NUMERICHOST|NI_NUMERICSERV if $numeric;
 
-   my ( $err, $host, $service ) = getnameinfo( $addr, $flags );
+   my ( $err, $host, $service ) = getnameinfo( $addr, $flags, $xflags || 0 );
    croak "getnameinfo - $err" if $err;
 
    return ( $host, $service );
@@ -572,7 +639,7 @@ sub sockhost_service
    my $self = shift;
    my ( $numeric ) = @_;
 
-   $self->_get_host_service( $self->sockname, $numeric );
+   $self->_get_host_service( $self->sockname, $numeric ? NI_NUMERICHOST|NI_NUMERICSERV : 0 );
 }
 
 =head2 $addr = $sock->sockhost
@@ -593,11 +660,11 @@ Return the resolved name of the local port number
 
 =cut
 
-sub sockhost { ( shift->sockhost_service(1) )[0] }
-sub sockport { ( shift->sockhost_service(1) )[1] }
+sub sockhost { my $self = shift; ( $self->_get_host_service( $self->sockname, NI_NUMERICHOST, NIx_NOSERV ) )[0] }
+sub sockport { my $self = shift; ( $self->_get_host_service( $self->sockname, NI_NUMERICSERV, NIx_NOHOST ) )[1] }
 
-sub sockhostname { ( shift->sockhost_service(0) )[0] }
-sub sockservice  { ( shift->sockhost_service(0) )[1] }
+sub sockhostname { my $self = shift; ( $self->_get_host_service( $self->sockname, 0, NIx_NOSERV ) )[0] }
+sub sockservice  { my $self = shift; ( $self->_get_host_service( $self->sockname, 0, NIx_NOHOST ) )[1] }
 
 =head2 ( $host, $service ) = $sock->peerhost_service( $numeric )
 
@@ -617,7 +684,7 @@ sub peerhost_service
    my $self = shift;
    my ( $numeric ) = @_;
 
-   $self->_get_host_service( $self->peername, $numeric );
+   $self->_get_host_service( $self->peername, $numeric ? NI_NUMERICHOST|NI_NUMERICSERV : 0 );
 }
 
 =head2 $addr = $sock->peerhost
@@ -638,11 +705,11 @@ Return the resolved name of the peer port number
 
 =cut
 
-sub peerhost    { ( shift->peerhost_service(1) )[0] }
-sub peerport    { ( shift->peerhost_service(1) )[1] }
+sub peerhost { my $self = shift; ( $self->_get_host_service( $self->peername, NI_NUMERICHOST, NIx_NOSERV ) )[0] }
+sub peerport { my $self = shift; ( $self->_get_host_service( $self->peername, NI_NUMERICSERV, NIx_NOHOST ) )[1] }
 
-sub peerhostname { ( shift->peerhost_service(0) )[0] }
-sub peerservice  { ( shift->peerhost_service(0) )[1] }
+sub peerhostname { my $self = shift; ( $self->_get_host_service( $self->peername, 0, NIx_NOSERV ) )[0] }
+sub peerservice  { my $self = shift; ( $self->_get_host_service( $self->peername, 0, NIx_NOHOST ) )[1] }
 
 # This unbelievably dodgy hack works around the bug that IO::Socket doesn't do
 # it
@@ -772,12 +839,14 @@ not understand it then the port number (C<80>) will be used instead.
 
 =item *
 
-The C<Timeout> and C<MultiHomed> constructor arguments are currently not
-recognised.
+The C<Timeout> constructor argument is currently not recognised.
 
 The behaviour enabled by C<MultiHomed> is in fact implemented by
 C<IO::Socket::IP> as it is required to correctly support searching for a
-useable address from the results of the C<getaddrinfo(3)> call.
+useable address from the results of the C<getaddrinfo(3)> call. The
+constructor will ignore the value of this argument, except if it is defined
+but false. An exception is thrown in this case, because that would request it
+disable the C<getaddrinfo(3)> search behaviour in the first place.
 
 =back
 
@@ -789,31 +858,8 @@ useable address from the results of the C<getaddrinfo(3)> call.
 
 =item *
 
-Cache the returns from C<sockhost_service> and C<peerhost_service> to avoid
-double-lookup overhead in such code as
-
-  printf "Peer is %s:%d\n", $sock->peerhost, $sock->peerport;
-
-=item *
-
 Investigate whether C<POSIX::dup2> upsets BSD's C<kqueue> watchers, and if so,
 consider what possible workarounds might be applied.
-
-=back
-
-=head1 BUGS
-
-=over 4
-
-=item *
-
-Nonblocking connect fails unit tests on MSWin32 smoke-testing machines. The
-specifics of the failure are that C<connect()> seems to block anyway despite
-being asked not to, and that failure to connect is not detected properly. I am
-as yet unsure why this is.
-
-Blocking connect on MSWin32, and both blocking and nonblocking connect on
-other platforms, all test OK on smoke testing.
 
 =back
 
