@@ -1013,7 +1013,7 @@ use File::Glob qw(:case);
 
     'IO::Socket::IP' => {
         'MAINTAINER'   => 'pevans',
-        'DISTRIBUTION' => 'PEVANS/IO-Socket-IP-0.08_003.tar.gz',
+        'DISTRIBUTION' => 'PEVANS/IO-Socket-IP-0.08_004.tar.gz',
         'FILES'        => q[cpan/IO-Socket-IP],
         'EXCLUDED'     => ['t/99pod.t'],
         'UPSTREAM'     => 'cpan',
