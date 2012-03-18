@@ -5547,7 +5547,7 @@ Perl_yylex(pTHX)
 		}
 		sv = newSVpvn_flags(s, len, UTF ? SVf_UTF8 : 0);
 		if (*d == '(') {
-		    d = scan_str(d,TRUE,TRUE);
+		    d = scan_str(d,TRUE,TRUE,FALSE);
 		    if (!d) {
 			/* MUST advance bufptr here to avoid bogus
 			   "at end of line" context messages from yyerror().
@@ -6443,7 +6443,7 @@ Perl_yylex(pTHX)
 	TERM(THING);
 
     case '\'':
-	s = scan_str(s,!!PL_madskills,FALSE);
+	s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	DEBUG_T( { printbuf("### Saw string before %s\n", s); } );
 	if (PL_expect == XOPERATOR) {
 	    if (PL_lex_formbrack && PL_lex_brackets == PL_lex_formbrack) {
@@ -6458,7 +6458,7 @@ Perl_yylex(pTHX)
 	TERM(sublex_start());
 
     case '"':
-	s = scan_str(s,!!PL_madskills,FALSE);
+	s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	DEBUG_T( { printbuf("### Saw string before %s\n", s); } );
 	if (PL_expect == XOPERATOR) {
 	    if (PL_lex_formbrack && PL_lex_brackets == PL_lex_formbrack) {
@@ -6481,7 +6481,7 @@ Perl_yylex(pTHX)
 	TERM(sublex_start());
 
     case '`':
-	s = scan_str(s,!!PL_madskills,FALSE);
+	s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	DEBUG_T( { printbuf("### Saw backtick string before %s\n", s); } );
 	if (PL_expect == XOPERATOR)
 	    no_op("Backticks",s);
@@ -7847,7 +7847,7 @@ Perl_yylex(pTHX)
 	    LOP(OP_PIPE_OP,XTERM);
 
 	case KEY_q:
-	    s = scan_str(s,!!PL_madskills,FALSE);
+	    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	    if (!s)
 		missingterm(NULL);
 	    pl_yylval.ival = OP_CONST;
@@ -7858,7 +7858,7 @@ Perl_yylex(pTHX)
 
 	case KEY_qw: {
 	    OP *words = NULL;
-	    s = scan_str(s,!!PL_madskills,FALSE);
+	    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	    if (!s)
 		missingterm(NULL);
 	    PL_expect = XOPERATOR;
@@ -7908,7 +7908,7 @@ Perl_yylex(pTHX)
 	}
 
 	case KEY_qq:
-	    s = scan_str(s,!!PL_madskills,FALSE);
+	    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	    if (!s)
 		missingterm(NULL);
 	    pl_yylval.ival = OP_STRINGIFY;
@@ -7921,7 +7921,7 @@ Perl_yylex(pTHX)
 	    TERM(sublex_start());
 
 	case KEY_qx:
-	    s = scan_str(s,!!PL_madskills,FALSE);
+	    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 	    if (!s)
 		missingterm(NULL);
 	    readpipe_override();
@@ -8230,7 +8230,7 @@ Perl_yylex(pTHX)
 		    const bool warnillegalproto = ckWARN(WARN_ILLEGALPROTO);
                     STRLEN tmplen;
 
-		    s = scan_str(s,!!PL_madskills,FALSE);
+		    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
 		    if (!s)
 			Perl_croak(aTHX_ "Prototype not terminated");
 		    /* strip spaces and check for bad characters */
@@ -9194,7 +9194,7 @@ S_scan_pat(pTHX_ char *start, I32 type)
 {
     dVAR;
     PMOP *pm;
-    char *s = scan_str(start,!!PL_madskills,FALSE);
+    char *s = scan_str(start,!!PL_madskills,FALSE, PL_reg_state.re_reparsing);
     const char * const valid_flags =
 	(const char *)((type == OP_QR) ? QR_PAT_MODS : M_PAT_MODS);
     char charset = '\0';    /* character set modifier */
@@ -9204,6 +9204,9 @@ S_scan_pat(pTHX_ char *start, I32 type)
 
     PERL_ARGS_ASSERT_SCAN_PAT;
 
+    /* this was only needed for the initial scan_str; set it to false
+     * so that any (?{}) code blocks etc are parsed normally */
+    PL_reg_state.re_reparsing = FALSE;
     if (!s) {
 	const char * const delimiter = skipspace(start);
 	Perl_croak(aTHX_
@@ -9294,7 +9297,7 @@ S_scan_subst(pTHX_ char *start)
 
     pl_yylval.ival = OP_NULL;
 
-    s = scan_str(start,!!PL_madskills,FALSE);
+    s = scan_str(start,!!PL_madskills,FALSE,FALSE);
 
     if (!s)
 	Perl_croak(aTHX_ "Substitution pattern not terminated");
@@ -9312,7 +9315,7 @@ S_scan_subst(pTHX_ char *start)
 #endif
 
     first_start = PL_multi_start;
-    s = scan_str(s,!!PL_madskills,FALSE);
+    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
     if (!s) {
 	if (PL_lex_stuff) {
 	    SvREFCNT_dec(PL_lex_stuff);
@@ -9402,7 +9405,7 @@ S_scan_trans(pTHX_ char *start)
 
     pl_yylval.ival = OP_NULL;
 
-    s = scan_str(start,!!PL_madskills,FALSE);
+    s = scan_str(start,!!PL_madskills,FALSE,FALSE);
     if (!s)
 	Perl_croak(aTHX_ "Transliteration pattern not terminated");
 
@@ -9418,7 +9421,7 @@ S_scan_trans(pTHX_ char *start)
     }
 #endif
 
-    s = scan_str(s,!!PL_madskills,FALSE);
+    s = scan_str(s,!!PL_madskills,FALSE,FALSE);
     if (!s) {
 	if (PL_lex_stuff) {
 	    SvREFCNT_dec(PL_lex_stuff);
@@ -9810,7 +9813,7 @@ S_scan_inputsymbol(pTHX_ char *start)
 
     if (d - PL_tokenbuf != len) {
 	pl_yylval.ival = OP_GLOB;
-	s = scan_str(start,!!PL_madskills,FALSE);
+	s = scan_str(start,!!PL_madskills,FALSE,FALSE);
 	if (!s)
 	   Perl_croak(aTHX_ "Glob not terminated");
 	return s;
@@ -9910,6 +9913,8 @@ intro_sym:
    takes: start position in buffer
 	  keep_quoted preserve \ on the embedded delimiter(s)
 	  keep_delims preserve the delimiters around the string
+	  re_reparse  compiling a run-time /(?{})/:
+			collapse // to /,  and skip encoding src
    returns: position to continue reading from buffer
    side-effects: multi_start, multi_close, lex_repl or lex_stuff, and
    	updates the read buffer.
@@ -9950,7 +9955,7 @@ intro_sym:
 */
 
 STATIC char *
-S_scan_str(pTHX_ char *start, int keep_quoted, int keep_delims)
+S_scan_str(pTHX_ char *start, int keep_quoted, int keep_delims, int re_reparse)
 {
     dVAR;
     SV *sv;				/* scalar value: string */
@@ -10029,7 +10034,7 @@ S_scan_str(pTHX_ char *start, int keep_quoted, int keep_delims)
     }
 #endif
     for (;;) {
-	if (PL_encoding && !UTF) {
+	if (PL_encoding && !UTF && !re_reparse) {
 	    bool cont = TRUE;
 
 	    while (cont) {
@@ -10111,9 +10116,12 @@ S_scan_str(pTHX_ char *start, int keep_quoted, int keep_delims)
 		    CopLINE_inc(PL_curcop);
 		/* handle quoted delimiters */
 		if (*s == '\\' && s+1 < PL_bufend && term != '\\') {
-		    if (!keep_quoted && s[1] == term)
+		    if (!keep_quoted
+		        && (s[1] == term
+			    || (re_reparse && s[1] == '\\'))
+		    )
 			s++;
-		/* any other quotes are simply copied straight through */
+		    /* any other quotes are simply copied straight through */
 		    else
 			*to++ = *s++;
 		}
@@ -10214,7 +10222,7 @@ S_scan_str(pTHX_ char *start, int keep_quoted, int keep_delims)
 
     /* at this point, we have successfully read the delimited string */
 
-    if (!PL_encoding || UTF) {
+    if (!PL_encoding || UTF || re_reparse) {
 #ifdef PERL_MAD
 	if (PL_madskills) {
 	    char * const tstart = SvPVX(PL_linestr) + stuffstart;
@@ -10246,7 +10254,7 @@ S_scan_str(pTHX_ char *start, int keep_quoted, int keep_delims)
 	}
     }
 #endif
-    if (has_utf8 || PL_encoding)
+    if (has_utf8 || (PL_encoding && !re_reparse))
 	SvUTF8_on(sv);
 
     PL_multi_end = CopLINE(PL_curcop);
