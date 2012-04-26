@@ -153,19 +153,19 @@ sub _tmpdir {
     my $self = shift;
     my @dirlist = @_;
     {
-	no strict 'refs';
-	if (${"\cTAINT"}) { # Check for taint mode on perl >= 5.8.0
+        no strict 'refs';
+        if (${"\cTAINT"}) { # Check for taint mode on perl >= 5.8.0
             require Scalar::Util;
-	    @dirlist = grep { ! Scalar::Util::tainted($_) } @dirlist;
-	}
-	elsif ($] < 5.007) { # No ${^TAINT} before 5.8
-	    @dirlist = grep { eval { eval('1'.substr $_,0,0) } } @dirlist;
-	}
+            @dirlist = grep { ! Scalar::Util::tainted($_) } @dirlist;
+        }
+        elsif ($] < 5.007) { # No ${^TAINT} before 5.8
+            @dirlist = grep { eval { eval('1'.substr $_,0,0) } } @dirlist;
+        }
     }
     foreach (@dirlist) {
-	next unless defined && -d && -w _;
-	$tmpdir = $_;
-	last;
+        next unless defined && -d && -w _;
+        $tmpdir = $_;
+        last;
     }
     $tmpdir = $self->curdir unless defined $tmpdir;
     $tmpdir = defined $tmpdir && $self->canonpath($tmpdir);
@@ -374,11 +374,11 @@ sub abs2rel {
     ($path, $base) = map $self->canonpath($_), $path, $base;
 
     if (grep $self->file_name_is_absolute($_), $path, $base) {
-	($path, $base) = map $self->rel2abs($_), $path, $base;
+        ($path, $base) = map $self->rel2abs($_), $path, $base;
     }
     else {
-	# save a couple of cwd()s if both paths are relative
-	($path, $base) = map $self->catdir('/', $_), $path, $base;
+        # save a couple of cwd()s if both paths are relative
+        ($path, $base) = map $self->catdir('/', $_), $path, $base;
     }
 
     my ($path_volume) = $self->splitpath($path, 1);
@@ -455,7 +455,7 @@ sub rel2abs {
     if ( ! $self->file_name_is_absolute( $path ) ) {
         # Figure out the effective $base and clean it up.
         if ( !defined( $base ) || $base eq '' ) {
-	    $base = $self->_cwd();
+            $base = $self->_cwd();
         }
         elsif ( ! $self->file_name_is_absolute( $base ) ) {
             $base = $self->rel2abs( $base ) ;
