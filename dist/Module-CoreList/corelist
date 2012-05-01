@@ -119,7 +119,10 @@ use warnings;
 
 my %Opts;
 
-GetOptions(\%Opts, qw[ help|?! man! r|release:s v|version:s a! d ] );
+GetOptions(
+    \%Opts,
+    qw[ help|?! man! r|release:s v|version:s a! d diff|D ]
+);
 
 pod2usage(1) if $Opts{help};
 pod2usage(-verbose=>2) if $Opts{man};
@@ -173,6 +176,32 @@ if(exists $Opts{v} ){
 	print "\n";
 	exit 0;
     }
+}
+
+if ($Opts{diff}) {
+    if(@ARGV != 2) {
+        die "\nprovide exactly two perl core versions to diff with --diff\n";
+    }
+
+    my ($old_ver, $new_ver) = @ARGV;
+
+    my $old = $Module::CoreList::version{ numify_version($old_ver) };
+    my $new = $Module::CoreList::version{ numify_version($new_ver) };
+
+    my %uniq = (%$old, %$new);
+    for my $lib (sort keys %uniq) {
+        my $old = exists $old->{ $lib }
+                ? (defined $old->{ $lib } ? $old->{ $lib } : '(undef)')
+                : '(absent)';
+        my $new = exists $new->{ $lib }
+                ? (defined $new->{ $lib } ? $new->{ $lib } : '(undef)')
+                : '(absent)';
+
+        next if $old eq $new;
+
+        printf "%-35s %10s %10s\n", $lib, $old, $new;
+    }
+    exit(0);
 }
 
 if ( !@ARGV ) {
